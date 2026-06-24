@@ -158,6 +158,73 @@ def row_to_movie(row: dict) -> Movie:
     )
 
 
+def postgres_search_terms(query_terms: list[str], intent: dict) -> tuple[list[str], list[str]]:
+    terms = [term for term in query_terms if len(term) > 2 and term not in {"movie", "movies", "show", "shows", "film", "films"}]
+    genres: list[str] = []
+    normalized_terms = set(terms)
+    if {"funny", "comedy", "comedies", "chaotic"} & normalized_terms:
+        genres.append("Comedy")
+    if intent.get("wants_thrillerish"):
+        genres.extend(["Thriller", "Mystery", "Crime"])
+    if "romance" in normalized_terms or "romantic" in normalized_terms:
+        genres.append("Romance")
+    if "family" in normalized_terms or "kids" in normalized_terms:
+        genres.extend(["Family", "Kids"])
+    return terms, list(dict.fromkeys(genres))
+
+
+def load_postgres_search_titles(query_terms: list[str], intent: dict, limit: int = 1000) -> tuple[list[Movie], dict[str, float]]:
+    terms, genre_terms = postgres_search_terms(query_terms, intent)
+    base_where = []
+    search_where = []
+    params: list = []
+    if intent.get("wants_movie"):
+        base_where.append("type = 'Movie'")
+    if intent.get("wants_show"):
+        base_where.append("type = 'Show'")
+    if intent.get("wants_new"):
+        base_where.append("year >= 2020")
+    if genre_terms:
+        search_where.append("genres && %s")
+        params.append(genre_terms)
+    if terms:
+        text_clauses = []
+        for term in terms[:6]:
+            like = f"%{term}%"
+            text_clauses.append("(title ilike %s or synopsis ilike %s or array_to_string(genres, ' ') ilike %s)")
+            params.extend([like, like, like])
+        search_where.append("(" + " or ".join(text_clauses) + ")")
+    where = base_where[:]
+    if search_where:
+        where.append("(" + " or ".join(search_where) + ")")
+    where_sql = " where " + " and ".join(where) if where else ""
+    params.append(limit)
+    with psycopg.connect(database_url(), row_factory=dict_row) as conn:
+        rows = conn.execute(
+            f"""
+            select
+              id, netflix_id, tmdb_id, imdb_id, title, type, synopsis, year, runtime,
+              genres, cast_names, director_names, countries, availability_regions,
+              poster_url, backdrop_url, netflix_poster_url, netflix_large_image_url,
+              source_url, embedding::text
+            from titles
+            {where_sql}
+            order by
+              case when backdrop_url is null then 1 else 0 end,
+              coalesce(year, 0) desc
+            limit %s
+            """,
+            params,
+        ).fetchall()
+    movies = [row_to_movie(row) for row in rows]
+    embeddings = {
+        movie.id: embedding
+        for row, movie in zip(rows, movies)
+        if (embedding := parse_embedding(row.get("embedding")))
+    }
+    return movies, embeddings
+
+
 def load_postgres_titles() -> list[Movie]:
     with psycopg.connect(database_url(), row_factory=dict_row) as conn:
         rows = conn.execute(

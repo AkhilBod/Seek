@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover
 
 from .models import Movie, SearchResponse
 from .seed import SEED_MOVIES
-from .vector_store import load_titles, vector_scores
+from .vector_store import database_url, load_postgres_search_titles, load_titles, vector_scores
 
 FORMULA = "0.55 * semantic_score + 0.25 * keyword_score + 0.15 * profile_score + 0.05 * diversity_score"
 
@@ -166,6 +166,17 @@ def cosine_from_terms(query_terms: list[str], doc_terms: list[str]) -> float:
     return dot / (q_norm * d_norm)
 
 
+def cosine_from_vectors(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    a_norm = sqrt(sum(x * x for x in a))
+    b_norm = sqrt(sum(y * y for y in b))
+    if not a_norm or not b_norm:
+        return 0.0
+    return dot / (a_norm * b_norm)
+
+
 def embed_query(query: str) -> list[float] | None:
     if not os.getenv("OPENAI_API_KEY") or OpenAI is None:
         return None
@@ -185,11 +196,27 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
     previous_genres: set[str] = set()
     ranked = []
 
-    source_movies = movies or load_titles() or SEED_MOVIES
+    candidate_embeddings: dict[str, list[float]] = {}
+    if movies:
+        source_movies = movies
+    elif database_url():
+        source_movies, candidate_embeddings = load_postgres_search_titles(query_terms, intent)
+        if not source_movies:
+            source_movies = load_titles()
+    else:
+        source_movies = load_titles() or SEED_MOVIES
     filtered_movies = [movie for movie in source_movies if passes_hard_filters(movie, intent)]
     candidate_movies = filtered_movies or source_movies
     query_embedding = embed_query(normalized)
-    vector_scores_by_id = vector_scores(query_embedding)
+    vector_scores_by_id = {}
+    if query_embedding and candidate_embeddings:
+        vector_scores_by_id = {
+            movie_id: cosine
+            for movie_id, embedding in candidate_embeddings.items()
+            if (cosine := cosine_from_vectors(query_embedding, embedding))
+        }
+    elif not database_url():
+        vector_scores_by_id = vector_scores(query_embedding)
 
     for movie in candidate_movies:
         corpus = movie_text(movie)
