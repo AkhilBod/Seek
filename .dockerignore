@@ -1,0 +1,12 @@
+.git
+.venv
+node_modules
+frontend/node_modules
+frontend/.next
+backend/.env
+frontend/.env.local
+backend/data/*.sqlite
+backend/data/*.sqlite-*
+__pycache__
+*.pyc
+.DS_Store
