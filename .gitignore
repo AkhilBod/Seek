@@ -9,3 +9,4 @@ dist
 build
 backend/data/*.sqlite
 backend/data/*.sqlite-*
+.vercel
