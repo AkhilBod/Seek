@@ -39,16 +39,32 @@ def rows_from_sqlite(path: Path) -> list[sqlite3.Row]:
         raise SystemExit(f"SQLite catalog not found: {path}")
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
-        select
-          netflix_id, tmdb_id, imdb_id, title, type, synopsis, year, runtime,
-          genres, cast_names, director_names, countries, availability_regions,
-          poster_url, backdrop_url, netflix_poster_url, netflix_large_image_url,
-          date_added, expire_date, source_url, embedding
-        from titles
-        """
-    ).fetchall()
+    columns = {row["name"] for row in conn.execute("pragma table_info(titles)").fetchall()}
+    select_columns = [
+        "netflix_id",
+        "tmdb_id",
+        "imdb_id",
+        "title",
+        "type",
+        "synopsis",
+        "year",
+        "runtime",
+        "genres",
+        "cast_names",
+        "director_names",
+        "countries",
+        "availability_regions",
+        "poster_url",
+        "backdrop_url",
+        "netflix_poster_url",
+        "netflix_large_image_url",
+        "date_added",
+        "expire_date",
+        "source_url",
+        "embedding",
+    ]
+    expressions = [column if column in columns else f"null as {column}" for column in select_columns]
+    rows = conn.execute(f"select {', '.join(expressions)} from titles").fetchall()
     conn.close()
     return rows
 
@@ -94,52 +110,51 @@ def main() -> None:
 
     with psycopg.connect(args.database_url) as conn:
         with conn.cursor() as cur:
+            cur.execute("drop index if exists titles_embedding_idx")
+            conn.commit()
             for index in range(0, len(rows), args.batch_size):
                 batch = rows[index : index + args.batch_size]
-                for row in batch:
-                    cur.execute(
-                        """
-                        insert into titles (
-                          netflix_id, tmdb_id, imdb_id, title, type, synopsis, year, runtime,
-                          genres, cast_names, director_names, countries, availability_regions,
-                          poster_url, backdrop_url, netflix_poster_url, netflix_large_image_url,
-                          date_added, expire_date, source_url, embedding, updated_at
-                        )
-                        values (
-                          %(netflix_id)s, %(tmdb_id)s, %(imdb_id)s, %(title)s, %(type)s, %(synopsis)s, %(year)s, %(runtime)s,
-                          %(genres)s, %(cast_names)s, %(director_names)s, %(countries)s, %(availability_regions)s,
-                          %(poster_url)s, %(backdrop_url)s, %(netflix_poster_url)s, %(netflix_large_image_url)s,
-                          %(date_added)s, %(expire_date)s, %(source_url)s, %(embedding)s::vector, now()
-                        )
-                        on conflict (netflix_id) do update set
-                          tmdb_id = excluded.tmdb_id,
-                          imdb_id = excluded.imdb_id,
-                          title = excluded.title,
-                          type = excluded.type,
-                          synopsis = excluded.synopsis,
-                          year = excluded.year,
-                          runtime = excluded.runtime,
-                          genres = excluded.genres,
-                          cast_names = excluded.cast_names,
-                          director_names = excluded.director_names,
-                          countries = excluded.countries,
-                          availability_regions = excluded.availability_regions,
-                          poster_url = excluded.poster_url,
-                          backdrop_url = excluded.backdrop_url,
-                          netflix_poster_url = excluded.netflix_poster_url,
-                          netflix_large_image_url = excluded.netflix_large_image_url,
-                          date_added = excluded.date_added,
-                          expire_date = excluded.expire_date,
-                          source_url = excluded.source_url,
-                          embedding = excluded.embedding,
-                          updated_at = now()
-                        """,
-                        row_params(row),
+                params = [row_params(row) for row in batch]
+                cur.executemany(
+                    """
+                    insert into titles (
+                      netflix_id, tmdb_id, imdb_id, title, type, synopsis, year, runtime,
+                      genres, cast_names, director_names, countries, availability_regions,
+                      poster_url, backdrop_url, netflix_poster_url, netflix_large_image_url,
+                      date_added, expire_date, source_url, embedding, updated_at
                     )
-                    if cur.rowcount:
-                        imported += 1
-                    else:
-                        skipped += 1
+                    values (
+                      %(netflix_id)s, %(tmdb_id)s, %(imdb_id)s, %(title)s, %(type)s, %(synopsis)s, %(year)s, %(runtime)s,
+                      %(genres)s, %(cast_names)s, %(director_names)s, %(countries)s, %(availability_regions)s,
+                      %(poster_url)s, %(backdrop_url)s, %(netflix_poster_url)s, %(netflix_large_image_url)s,
+                      %(date_added)s, %(expire_date)s, %(source_url)s, %(embedding)s::vector, now()
+                    )
+                    on conflict (netflix_id) do update set
+                      tmdb_id = excluded.tmdb_id,
+                      imdb_id = excluded.imdb_id,
+                      title = excluded.title,
+                      type = excluded.type,
+                      synopsis = excluded.synopsis,
+                      year = excluded.year,
+                      runtime = excluded.runtime,
+                      genres = excluded.genres,
+                      cast_names = excluded.cast_names,
+                      director_names = excluded.director_names,
+                      countries = excluded.countries,
+                      availability_regions = excluded.availability_regions,
+                      poster_url = excluded.poster_url,
+                      backdrop_url = excluded.backdrop_url,
+                      netflix_poster_url = excluded.netflix_poster_url,
+                      netflix_large_image_url = excluded.netflix_large_image_url,
+                      date_added = excluded.date_added,
+                      expire_date = excluded.expire_date,
+                      source_url = excluded.source_url,
+                      embedding = excluded.embedding,
+                      updated_at = now()
+                    """,
+                    params,
+                )
+                imported += len(batch)
                 conn.commit()
                 print(f"Migrated {min(index + args.batch_size, len(rows))}/{len(rows)} rows")
 

@@ -27,10 +27,6 @@ create table if not exists titles (
   updated_at timestamptz not null default now()
 );
 
-create index if not exists titles_embedding_idx on titles using ivfflat (embedding vector_cosine_ops);
-create index if not exists titles_search_idx on titles using gin (
-  to_tsvector('english', coalesce(title, '') || ' ' || coalesce(synopsis, '') || ' ' || array_to_string(genres, ' '))
-);
 create index if not exists titles_genres_idx on titles using gin (genres);
 create index if not exists titles_regions_idx on titles using gin (availability_regions);
 create index if not exists titles_imdb_idx on titles (imdb_id);
