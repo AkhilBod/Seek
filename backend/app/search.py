@@ -188,6 +188,17 @@ def embed_query(query: str) -> list[float] | None:
         return None
 
 
+def should_embed(normalized: str, query_terms: list[str], intent: dict) -> bool:
+    if not database_url():
+        return True
+    if intent["wants_detective"] or "slow burn" in normalized or "like " in normalized:
+        return True
+    mood_terms = {"emotional", "lonely", "comfort", "intense", "stressful", "rainy", "dark", "smart"}
+    if mood_terms & set(query_terms):
+        return True
+    return len(query_terms) >= 4
+
+
 def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> SearchResponse:
     started = time.perf_counter()
     normalized = normalize_query(query)
@@ -207,7 +218,7 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         source_movies = load_titles() or SEED_MOVIES
     filtered_movies = [movie for movie in source_movies if passes_hard_filters(movie, intent)]
     candidate_movies = filtered_movies or source_movies
-    query_embedding = embed_query(normalized)
+    query_embedding = embed_query(normalized) if should_embed(normalized, query_terms, intent) else None
     vector_scores_by_id = {}
     if query_embedding and candidate_embeddings:
         vector_scores_by_id = {

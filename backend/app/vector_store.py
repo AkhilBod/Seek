@@ -173,7 +173,7 @@ def postgres_search_terms(query_terms: list[str], intent: dict) -> tuple[list[st
     return terms, list(dict.fromkeys(genres))
 
 
-def load_postgres_search_titles(query_terms: list[str], intent: dict, limit: int = 1000) -> tuple[list[Movie], dict[str, float]]:
+def load_postgres_search_titles(query_terms: list[str], intent: dict, limit: int = 600) -> tuple[list[Movie], dict[str, float]]:
     terms, genre_terms = postgres_search_terms(query_terms, intent)
     base_where = []
     search_where = []
