@@ -12,7 +12,6 @@ export type Ranking = {
   semantic_score: number;
   keyword_score: number;
   profile_score: number;
-  diversity_score: number;
   final_score: number;
   matched_fields: string[];
   explanation: string;

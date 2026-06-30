@@ -6,7 +6,6 @@ export function RankingBreakdown({ ranking }: { ranking: Ranking }) {
   const rows = [
     ["Semantic", ranking.semantic_score],
     ["Keyword", ranking.keyword_score],
-    ["Diversity", ranking.diversity_score],
     ["Final", ranking.final_score]
   ];
 
@@ -33,7 +32,7 @@ export function RankingBreakdown({ ranking }: { ranking: Ranking }) {
         })}
       </div>
       <p className="mt-4 text-xs leading-5 text-white/50">
-        Formula: semantic meaning, keyword intent, and result diversity.
+        Formula: semantic meaning and keyword intent.
       </p>
     </div>
   );

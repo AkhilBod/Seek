@@ -6,7 +6,7 @@ It is intentionally not a streaming clone. The product focuses on one polished s
 
 ## Why It Matters
 
-Movie discovery often fails when people know the mood, plot texture, or emotional shape they want but not the title. Seek treats discovery as retrieval: hybrid semantic and keyword search, profile-aware reranking, diversity scoring, and transparent explanations.
+Movie discovery often fails when people know the mood, plot texture, or emotional shape they want but not the title. Seek treats discovery as retrieval: hybrid semantic and keyword search, profile-aware reranking, and transparent explanations.
 
 Resume bullet:
 
@@ -28,17 +28,15 @@ Resume bullet:
 4. Run keyword search across title, description, genres, cast, director, country, region, and type.
 5. Merge semantic and keyword candidates.
 6. Apply selected demo profile preferences.
-7. Apply diversity reranking.
-8. Return top results with deterministic explanations.
+7. Return top results with deterministic explanations.
 
 Scoring:
 
 ```txt
 final_score =
-0.55 * semantic_score +
+0.65 * semantic_score +
 0.25 * keyword_score +
-0.15 * profile_score +
-0.05 * diversity_score
+0.10 * profile_score
 ```
 
 ## Local Setup

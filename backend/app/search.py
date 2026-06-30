@@ -16,7 +16,7 @@ from .models import Movie, SearchResponse
 from .seed import SEED_MOVIES
 from .vector_store import database_url, load_postgres_search_titles, load_titles, vector_scores
 
-FORMULA = "0.55 * semantic_score + 0.25 * keyword_score + 0.15 * profile_score + 0.05 * diversity_score"
+FORMULA = "0.65 * semantic_score + 0.25 * keyword_score + 0.10 * profile_score"
 
 PROFILE_TERMS = {
     "Neutral": [],
@@ -204,7 +204,6 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
     normalized = normalize_query(query)
     query_terms = tokenize(normalized)
     intent = infer_intent(normalized)
-    previous_genres: set[str] = set()
     ranked = []
 
     candidate_embeddings: dict[str, list[float]] = {}
@@ -242,10 +241,8 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         keyword_score = min(1.0, len(matched) / max(len(query_terms), 1))
         profile_hits = sum(1 for term in PROFILE_TERMS.get(profile, []) if term.lower() in corpus)
         profile_score = 0.55 if profile == "Neutral" else min(1.0, 0.24 + profile_hits * 0.2)
-        overlap = len([genre for genre in movie.genres if genre in previous_genres])
-        diversity_score = max(0.25, 1 - overlap * 0.22)
         intent_boost, intent_signals = intent_boosts(movie, corpus, intent)
-        final_score = max(0.0, min(0.96, 0.55 * semantic_score + 0.25 * keyword_score + 0.15 * profile_score + 0.05 * diversity_score + intent_boost))
+        final_score = max(0.0, min(0.96, 0.65 * semantic_score + 0.25 * keyword_score + 0.10 * profile_score + intent_boost))
         matched_fields = []
         if matched:
             matched_fields.append("description/tags")
@@ -262,7 +259,6 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
             "semantic_score": semantic_score,
             "keyword_score": keyword_score,
             "profile_score": profile_score,
-            "diversity_score": diversity_score,
             "final_score": final_score,
             "matched_fields": list(dict.fromkeys(matched_fields)),
             "explanation": f"Matched {', '.join(matched[:4]) or 'nearby intent'} across {', '.join(list(dict.fromkeys(matched_fields))[:4]) or 'catalog text'}.",
@@ -270,8 +266,6 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         ranked.append(item)
 
     ranked.sort(key=lambda movie: movie.ranking["final_score"] if movie.ranking else 0, reverse=True)
-    for movie in ranked[:20]:
-        previous_genres.update(movie.genres)
 
     return SearchResponse(
         query=query,

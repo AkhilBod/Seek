@@ -22,7 +22,7 @@ export function SearchDebugger({ response }: { response: SearchResponse | null }
       <div className="glass overflow-hidden rounded-lg">
         <div className="border-b border-white/10 p-5">
           <h2 className="font-semibold text-white">Top retrieved candidates</h2>
-          <p className="mt-1 text-sm text-white/48">Scores shown after profile and diversity reranking.</p>
+          <p className="mt-1 text-sm text-white/48">Scores shown after relevance reranking.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -32,7 +32,6 @@ export function SearchDebugger({ response }: { response: SearchResponse | null }
                 <th className="px-5 py-3">Semantic</th>
                 <th className="px-5 py-3">Keyword</th>
                 <th className="px-5 py-3">Profile</th>
-                <th className="px-5 py-3">Diversity</th>
                 <th className="px-5 py-3">Final</th>
                 <th className="px-5 py-3">Matched fields</th>
               </tr>
@@ -44,7 +43,6 @@ export function SearchDebugger({ response }: { response: SearchResponse | null }
                   <td className="px-5 py-4">{Math.round((movie.ranking?.semantic_score ?? 0) * 100)}%</td>
                   <td className="px-5 py-4">{Math.round((movie.ranking?.keyword_score ?? 0) * 100)}%</td>
                   <td className="px-5 py-4">{Math.round((movie.ranking?.profile_score ?? 0) * 100)}%</td>
-                  <td className="px-5 py-4">{Math.round((movie.ranking?.diversity_score ?? 0) * 100)}%</td>
                   <td className="px-5 py-4 text-ember">{Math.round((movie.ranking?.final_score ?? 0) * 100)}%</td>
                   <td className="px-5 py-4">{movie.ranking?.matched_fields.join(", ")}</td>
                 </tr>

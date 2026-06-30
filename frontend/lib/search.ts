@@ -51,7 +51,7 @@ const textFor = (movie: Movie) =>
     movie.country.join(" ")
   ].join(" ");
 
-const scoreMovie = (movie: Movie, query: string, profile: Profile, previousGenres: Set<string>): Ranking => {
+const scoreMovie = (movie: Movie, query: string, profile: Profile): Ranking => {
   const queryTerms = tokenize(query);
   const corpus = textFor(movie).toLowerCase();
   const title = movie.title.toLowerCase();
@@ -69,9 +69,7 @@ const scoreMovie = (movie: Movie, query: string, profile: Profile, previousGenre
   );
   const profileHits = profileTerms[profile].filter((term) => corpus.includes(term.toLowerCase())).length;
   const profile_score = profile === "Neutral" ? 0.55 : Math.min(1, 0.24 + profileHits * 0.2);
-  const overlap = movie.genres.filter((genre) => previousGenres.has(genre)).length;
-  const diversity_score = Math.max(0.25, 1 - overlap * 0.22);
-  const final_score = 0.55 * semantic_score + 0.25 * keyword_score + 0.15 * profile_score + 0.05 * diversity_score;
+  const final_score = 0.65 * semantic_score + 0.25 * keyword_score + 0.1 * profile_score;
   const matched_fields = [
     ...(matched.length ? ["description/tags"] : []),
     ...(queryTerms.some((term) => title.includes(term)) ? ["title"] : []),
@@ -83,7 +81,6 @@ const scoreMovie = (movie: Movie, query: string, profile: Profile, previousGenre
     semantic_score,
     keyword_score,
     profile_score,
-    diversity_score,
     final_score,
     matched_fields: [...new Set(matched_fields)],
     explanation:
@@ -110,14 +107,9 @@ export async function searchCatalog(query: string, profile: Profile): Promise<Se
     }
   }
 
-  const previousGenres = new Set<string>();
   const results = seedMovies
-    .map((movie) => ({ ...movie, ranking: scoreMovie(movie, query, profile, previousGenres) }))
+    .map((movie) => ({ ...movie, ranking: scoreMovie(movie, query, profile) }))
     .sort((a, b) => (b.ranking?.final_score ?? 0) - (a.ranking?.final_score ?? 0))
-    .map((movie) => {
-      movie.genres.forEach((genre) => previousGenres.add(genre));
-      return movie;
-    })
     .slice(0, 20);
 
   return {
@@ -127,7 +119,7 @@ export async function searchCatalog(query: string, profile: Profile): Promise<Se
     latency_ms: Math.round(performance.now() - started),
     titles_searched: seedMovies.length,
     candidates_retrieved: results.length,
-    formula: "0.55 * semantic + 0.25 * keyword + 0.15 * profile + 0.05 * diversity",
+    formula: "0.65 * semantic + 0.25 * keyword + 0.10 * profile",
     results,
     recent_searches: examples.slice(0, 4),
     low_confidence_searches: ["obscure director with no genre hints", "that one movie with the blue room"]
