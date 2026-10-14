@@ -14,9 +14,10 @@ except Exception:  # pragma: no cover
 
 from .models import Movie, SearchResponse
 from .seed import SEED_MOVIES
-from .vector_store import database_url, load_postgres_search_titles, load_titles, vector_scores
+from .vector_store import database_url, hybrid_candidates, load_postgres_search_titles, load_titles, vector_scores
 
 FORMULA = "0.65 * semantic_score + 0.25 * keyword_score + 0.10 * profile_score"
+HYBRID_FORMULA = "reciprocal rank fusion: HNSW vector top-100 + 0.1 x full-text top-100"
 
 PROFILE_TERMS = {
     "Neutral": [],
@@ -199,16 +200,38 @@ def should_embed(normalized: str, query_terms: list[str], intent: dict) -> bool:
     return len(query_terms) >= 4
 
 
-def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> SearchResponse:
+# Chosen with eval/run_eval.py. Vague plot/mood queries do best on vectors
+# alone; a little keyword weight fixes exact-title lookups the vectors miss.
+HYBRID_KEYWORD_WEIGHT = 0.1
+
+
+def retrieval_mode() -> str:
+    return os.getenv("SEEK_RETRIEVAL", "hybrid")
+
+
+def rank_movies(query: str, profile: str, movies: list[Movie] | None = None, retrieval: str | None = None) -> SearchResponse:
     started = time.perf_counter()
     normalized = normalize_query(query)
     query_terms = tokenize(normalized)
     intent = infer_intent(normalized)
     ranked = []
+    retrieval = retrieval or retrieval_mode()
 
     candidate_embeddings: dict[str, list[float]] = {}
+    precomputed_vector_scores: dict[str, float] | None = None
+    fused_scores: dict[str, float] = {}
+    query_embedding = None
     if movies:
         source_movies = movies
+    elif database_url() and retrieval == "hybrid":
+        query_embedding = embed_query(normalized)
+        try:
+            source_movies, precomputed_vector_scores, fused_scores = hybrid_candidates(
+                query_terms, query_embedding, intent, keyword_weight=HYBRID_KEYWORD_WEIGHT
+            )
+        except Exception as exc:  # e.g. migrations/002 not applied yet
+            print(f"hybrid retrieval failed, falling back to legacy: {exc}")
+            return rank_movies(query, profile, retrieval="legacy")
     elif database_url():
         source_movies, candidate_embeddings = load_postgres_search_titles(query_terms, intent)
         if not source_movies:
@@ -217,9 +240,12 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         source_movies = load_titles() or SEED_MOVIES
     filtered_movies = [movie for movie in source_movies if passes_hard_filters(movie, intent)]
     candidate_movies = filtered_movies or source_movies
-    query_embedding = embed_query(normalized) if should_embed(normalized, query_terms, intent) else None
+    if precomputed_vector_scores is None:
+        query_embedding = embed_query(normalized) if should_embed(normalized, query_terms, intent) else None
     vector_scores_by_id = {}
-    if query_embedding and candidate_embeddings:
+    if precomputed_vector_scores is not None:
+        vector_scores_by_id = precomputed_vector_scores
+    elif query_embedding and candidate_embeddings:
         vector_scores_by_id = {
             movie_id: cosine
             for movie_id, embedding in candidate_embeddings.items()
@@ -265,6 +291,15 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         }
         ranked.append(item)
 
+    if fused_scores:
+        # The weighted score formula above lowered recall@10 from 0.74 to 0.51 on
+        # the benchmark, so hybrid results keep retrieval order. A non-neutral
+        # profile still nudges matching titles up.
+        top = max(fused_scores.values())
+        for movie in ranked:
+            fused = fused_scores.get(movie.id, 0.0) / top
+            nudge = 0.0 if profile == "Neutral" else 0.15 * movie.ranking["profile_score"]
+            movie.ranking["final_score"] = round(min(0.99, fused * 0.85 + nudge), 4)
     ranked.sort(key=lambda movie: movie.ranking["final_score"] if movie.ranking else 0, reverse=True)
 
     return SearchResponse(
@@ -274,7 +309,7 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None) -> 
         latency_ms=round((time.perf_counter() - started) * 1000),
         titles_searched=len(source_movies),
         candidates_retrieved=min(20, len(ranked)),
-        formula=FORMULA,
+        formula=HYBRID_FORMULA if fused_scores else FORMULA,
         results=ranked[:20],
         recent_searches=["dark funny revenge movie", "comfort movie for a rainy night", "emotional sci-fi about loneliness"],
         low_confidence_searches=["very obscure memory fragment", "movie with the red umbrella but maybe a show"],

@@ -22,21 +22,69 @@ Resume bullet:
 
 ## Search Pipeline
 
-1. Normalize the user query.
-2. Convert query into an embedding when configured.
-3. Retrieve pgvector semantic candidates from the catalog.
-4. Run keyword search across title, description, genres, cast, director, country, region, and type.
-5. Merge semantic and keyword candidates.
-6. Apply selected demo profile preferences.
-7. Return top results with deterministic explanations.
+1. Normalize the query and pull out simple intent (movie vs show, "new", thriller words).
+2. Embed the query.
+3. Retrieve the top 100 titles by embedding distance from an HNSW index (pgvector).
+4. Retrieve the top 100 by Postgres full-text rank over title, genres, and synopsis.
+5. Merge the two lists with reciprocal rank fusion, keyword list weighted 0.1.
+6. Apply hard intent filters, optionally nudge by the selected profile, and attach explanations.
 
-Scoring:
+The weights come from the benchmark below, not from guessing.
 
-```txt
-final_score =
-0.65 * semantic_score +
-0.25 * keyword_score +
-0.10 * profile_score
+## Evaluation
+
+`eval/` holds a known-item benchmark. `build_queries.py` samples 300 titles and has
+an LLM write the kind of vague query a person types when they remember what
+something was about but not its name ("anime about high school basketball and
+unrequited love"). Any query that contains a word from the title or a name from
+the synopsis is thrown out, which removed 96 of them. `run_eval.py` checks where
+each strategy ranks the one correct title.
+
+Catalog: 8,320 US Netflix titles rebuilt from TMDB, `text-embedding-3-small`.
+Latency is retrieval time with the query embedding cached.
+
+Vague plot/mood queries (300):
+
+| Strategy | Recall@1 | Recall@10 | MRR@20 | p50 | p95 |
+|---|---|---|---|---|---|
+| Previous pipeline (ILIKE candidates, cosine in Python) | 0.147 | 0.203 | 0.167 | 412 ms | 581 ms |
+| Keyword only (full-text) | 0.017 | 0.113 | 0.046 | 12 ms | 24 ms |
+| Vector only (HNSW) | 0.463 | 0.733 | 0.564 | 62 ms | 65 ms |
+| Hybrid, equal weight | 0.147 | 0.630 | 0.301 | 72 ms | 88 ms |
+| **Hybrid, keyword x0.1 (shipped)** | 0.403 | 0.730 | 0.526 | 76 ms | 89 ms |
+
+Exact-title queries (same 300 titles):
+
+| Strategy | Recall@1 | Recall@10 |
+|---|---|---|
+| Previous pipeline | 0.583 | 0.683 |
+| Vector only | 0.827 | 0.957 |
+| **Hybrid, keyword x0.1 (shipped)** | 0.883 | 0.963 |
+
+What changed and why:
+
+- The old pipeline never used pgvector for retrieval. It picked up to 600 rows
+  with `ILIKE` on query words, ordered by release year, then computed cosine in
+  Python. A title that matched the meaning but not the words was never a
+  candidate, which is why recall was 20%.
+- Vectors alone win on vague queries. Mixing in keyword results at equal weight
+  cut Recall@1 from 0.46 to 0.15, because common words like "love" or "family"
+  pull in noise.
+- A small keyword weight still helps exact titles: Recall@1 0.83 -> 0.88. 0.1 was
+  the best trade-off of the weights tried (0, 0.1, 0.25, 0.5, 1.0).
+- The old weighted score formula lowered Recall@10 from 0.74 to 0.51 when applied
+  on top of hybrid retrieval, so hybrid results keep retrieval order.
+
+Caveats: the vague queries are paraphrases of the same synopses that were
+embedded, which favors vectors. Mood queries like "dark funny revenge movie" have
+no single right answer and aren't scored here.
+
+```bash
+psql "$DATABASE_URL" -f backend/migrations/002_hybrid_search.sql
+python eval/build_queries.py --database-url "$DATABASE_URL" --n 300
+python eval/run_eval.py --database-url "$DATABASE_URL"            # vague queries
+python eval/run_eval.py --database-url "$DATABASE_URL" --titles   # exact titles
+python -m pytest backend/tests
 ```
 
 ## Local Setup

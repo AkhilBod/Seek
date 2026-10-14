@@ -1,0 +1,103 @@
+{
+  "queries": 300,
+  "strategies": {
+    "current pipeline": {
+      "recall@1": 0.147,
+      "recall@10": 0.203,
+      "mrr@20": 0.167,
+      "p50_ms": 436.4,
+      "p95_ms": 641.7,
+      "sample_misses": [
+        "animated movie about a magical kingdom and an evil empire",
+        "documentary about wellness industry and health products",
+        "creepy holiday vacation with ancient evil on an island",
+        "mystery show about a writer facing her past",
+        "movie about covert rescue operation with a thrilling twist"
+      ]
+    },
+    "current pipeline, always embed": {
+      "recall@1": 0.147,
+      "recall@10": 0.203,
+      "mrr@20": 0.167,
+      "p50_ms": 421.3,
+      "p95_ms": 612.0,
+      "sample_misses": [
+        "animated movie about a magical kingdom and an evil empire",
+        "documentary about wellness industry and health products",
+        "creepy holiday vacation with ancient evil on an island",
+        "mystery show about a writer facing her past",
+        "movie about covert rescue operation with a thrilling twist"
+      ]
+    },
+    "keyword only (full-text)": {
+      "recall@1": 0.017,
+      "recall@10": 0.113,
+      "mrr@20": 0.046,
+      "p50_ms": 15.5,
+      "p95_ms": 29.4,
+      "sample_misses": [
+        "stand-up comedy competition at a famous venue",
+        "creepy holiday vacation with ancient evil on an island",
+        "movie about covert rescue operation with a thrilling twist",
+        "teen love story with friendship and romance",
+        "weird movie about filmmaking with magic and mystery"
+      ]
+    },
+    "vector only (HNSW)": {
+      "recall@1": 0.463,
+      "recall@10": 0.733,
+      "mrr@20": 0.564,
+      "p50_ms": 62.3,
+      "p95_ms": 69.6,
+      "sample_misses": [
+        "animated movie about a magical kingdom and an evil empire",
+        "movie about covert rescue operation with a thrilling twist",
+        "teen love story with friendship and romance",
+        "weird movie about filmmaking with magic and mystery",
+        "comedy about older women navigating life after divorce"
+      ]
+    },
+    "hybrid (RRF, equal weight)": {
+      "recall@1": 0.147,
+      "recall@10": 0.63,
+      "mrr@20": 0.301,
+      "p50_ms": 72.1,
+      "p95_ms": 85.5,
+      "sample_misses": [
+        "stand-up comedy competition at a famous venue",
+        "movie about covert rescue operation with a thrilling twist",
+        "teen love story with friendship and romance",
+        "weird movie about filmmaking with magic and mystery",
+        "comedy about older women navigating life after divorce"
+      ]
+    },
+    "hybrid (RRF, keyword x0.1)": {
+      "recall@1": 0.397,
+      "recall@10": 0.74,
+      "mrr@20": 0.526,
+      "p50_ms": 73.5,
+      "p95_ms": 88.4,
+      "sample_misses": [
+        "animated movie about a magical kingdom and an evil empire",
+        "movie about covert rescue operation with a thrilling twist",
+        "teen love story with friendship and romance",
+        "weird movie about filmmaking with magic and mystery",
+        "comedy about older women navigating life after divorce"
+      ]
+    },
+    "shipped: rank_movies (hybrid)": {
+      "recall@1": 0.403,
+      "recall@10": 0.73,
+      "mrr@20": 0.526,
+      "p50_ms": 75.8,
+      "p95_ms": 89.0,
+      "sample_misses": [
+        "animated movie about a magical kingdom and an evil empire",
+        "movie about covert rescue operation with a thrilling twist",
+        "teen love story with friendship and romance",
+        "weird movie about filmmaking with magic and mystery",
+        "comedy about older women navigating life after divorce"
+      ]
+    }
+  }
+}

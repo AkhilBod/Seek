@@ -1,0 +1,103 @@
+{
+  "queries": 300,
+  "strategies": {
+    "current pipeline": {
+      "recall@1": 0.583,
+      "recall@10": 0.683,
+      "mrr@20": 0.619,
+      "p50_ms": 104.2,
+      "p95_ms": 551.0,
+      "sample_misses": [
+        "Kingsglaive: Final Fantasy XV",
+        "The Red Sea Diving Resort",
+        "Grace and Frankie",
+        "The Parades",
+        "The Surgeon's Cut"
+      ]
+    },
+    "current pipeline, always embed": {
+      "recall@1": 0.63,
+      "recall@10": 0.677,
+      "mrr@20": 0.65,
+      "p50_ms": 128.8,
+      "p95_ms": 562.0,
+      "sample_misses": [
+        "Kingsglaive: Final Fantasy XV",
+        "Elves",
+        "The Red Sea Diving Resort",
+        "Grace and Frankie",
+        "The Parades"
+      ]
+    },
+    "keyword only (full-text)": {
+      "recall@1": 0.8,
+      "recall@10": 0.96,
+      "mrr@20": 0.861,
+      "p50_ms": 4.6,
+      "p95_ms": 8.8,
+      "sample_misses": [
+        "Doing Life",
+        "Michelle Wolf: Joke Show",
+        "That's My Boy",
+        "La R\u00e9volution",
+        "Insiders"
+      ]
+    },
+    "vector only (HNSW)": {
+      "recall@1": 0.827,
+      "recall@10": 0.957,
+      "mrr@20": 0.885,
+      "p50_ms": 61.8,
+      "p95_ms": 65.2,
+      "sample_misses": [
+        "Elves",
+        "Betaal",
+        "Animal Kingdom",
+        "Michelle Wolf: Joke Show",
+        "Daag"
+      ]
+    },
+    "hybrid (RRF, equal weight)": {
+      "recall@1": 0.89,
+      "recall@10": 0.98,
+      "mrr@20": 0.926,
+      "p50_ms": 63.9,
+      "p95_ms": 100.3,
+      "sample_misses": [
+        "Michelle Wolf: Joke Show",
+        "Japan",
+        "This Is I",
+        "Don",
+        "New York"
+      ]
+    },
+    "hybrid (RRF, keyword x0.1)": {
+      "recall@1": 0.883,
+      "recall@10": 0.963,
+      "mrr@20": 0.921,
+      "p50_ms": 66.5,
+      "p95_ms": 83.5,
+      "sample_misses": [
+        "Elves",
+        "Animal Kingdom",
+        "Michelle Wolf: Joke Show",
+        "Daag",
+        "Japan"
+      ]
+    },
+    "shipped: rank_movies (hybrid)": {
+      "recall@1": 0.883,
+      "recall@10": 0.963,
+      "mrr@20": 0.921,
+      "p50_ms": 69.4,
+      "p95_ms": 100.7,
+      "sample_misses": [
+        "Elves",
+        "Animal Kingdom",
+        "Michelle Wolf: Joke Show",
+        "Daag",
+        "Japan"
+      ]
+    }
+  }
+}

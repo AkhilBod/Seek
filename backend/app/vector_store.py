@@ -225,6 +225,105 @@ def load_postgres_search_titles(query_terms: list[str], intent: dict, limit: int
     return movies, embeddings
 
 
+TITLE_COLUMNS = """
+  id, netflix_id, tmdb_id, imdb_id, title, type, synopsis, year, runtime,
+  genres, cast_names, director_names, countries, availability_regions,
+  poster_url, backdrop_url, netflix_poster_url, netflix_large_image_url,
+  source_url
+"""
+
+RRF_K = 60
+
+
+def reciprocal_rank_fusion(ranked_ids: list[tuple[float, list[str]]], k: int = RRF_K) -> dict[str, float]:
+    """Score each id by sum(weight / (k + rank)) over the lists it appears in."""
+    scores: dict[str, float] = {}
+    for weight, ids in ranked_ids:
+        for rank, item in enumerate(ids, start=1):
+            scores[item] = scores.get(item, 0.0) + weight / (k + rank)
+    return scores
+
+
+def intent_filters(intent: dict) -> list[str]:
+    where = []
+    if intent.get("wants_movie"):
+        where.append("type = 'Movie'")
+    if intent.get("wants_show"):
+        where.append("type = 'Show'")
+    if intent.get("wants_new"):
+        where.append("year >= 2020")
+    return where
+
+
+def keyword_tsquery(query_terms: list[str]) -> str | None:
+    """OR the query words together. websearch_to_tsquery ANDs them, which
+    turns "dark funny revenge movie" into "only titles mentioning all four"."""
+    words = [w for w in query_terms if w.isalnum() and w not in {"movie", "movies", "show", "shows", "film", "films", "something", "like"}]
+    return " | ".join(words) if words else None
+
+
+def hybrid_candidates(
+    query_terms: list[str],
+    query_embedding: list[float] | None,
+    intent: dict,
+    k: int = 100,
+    keyword_weight: float = 1.0,
+) -> tuple[list[Movie], dict[str, float], dict[str, float]]:
+    """Top-k by embedding distance (HNSW) and top-k by full-text rank, merged
+    with reciprocal rank fusion. Returns movies in fused order, cosine
+    similarity per movie, and the fused score per movie."""
+    filters = intent_filters(intent)
+    where_sql = (" and " + " and ".join(filters)) if filters else ""
+    ranked_lists: list[tuple[float, list[dict]]] = []
+    cosine_by_id: dict[str, float] = {}
+    with psycopg.connect(database_url(), row_factory=dict_row) as conn:
+        if query_embedding:
+            literal = "[" + ",".join(f"{x:.7f}" for x in query_embedding) + "]"
+            conn.execute("set local hnsw.ef_search = %s" % max(k, 40))
+            rows = conn.execute(
+                f"""
+                select {TITLE_COLUMNS}, 1 - (embedding <=> %s::vector) as cosine
+                from titles
+                where embedding is not null{where_sql}
+                order by embedding <=> %s::vector
+                limit %s
+                """,
+                (literal, literal, k),
+            ).fetchall()
+            ranked_lists.append((1.0, rows))
+        tsquery = keyword_tsquery(query_terms)
+        if tsquery:
+            rows = conn.execute(
+                f"""
+                select {TITLE_COLUMNS}, ts_rank_cd(search_tsv, q) as text_rank
+                from titles, to_tsquery('english', %s) q
+                where search_tsv @@ q{where_sql}
+                order by text_rank desc
+                limit %s
+                """,
+                (tsquery, k),
+            ).fetchall()
+            ranked_lists.append((keyword_weight, rows))
+
+    rows_by_id: dict[str, dict] = {}
+    for _, rows in ranked_lists:
+        for row in rows:
+            movie_id = str(row["id"])
+            rows_by_id.setdefault(movie_id, row)
+            if row.get("cosine") is not None:
+                cosine_by_id[movie_id] = float(row["cosine"])
+    fused = reciprocal_rank_fusion([(weight, [str(row["id"]) for row in rows]) for weight, rows in ranked_lists])
+    order = sorted(fused, key=fused.get, reverse=True)
+    movies, cosines, scores = [], {}, {}
+    for movie_id in order:
+        movie = row_to_movie(rows_by_id[movie_id])
+        movies.append(movie)
+        if movie_id in cosine_by_id:
+            cosines[movie.id] = cosine_by_id[movie_id]
+        scores[movie.id] = fused[movie_id]
+    return movies, cosines, scores
+
+
 def load_postgres_titles() -> list[Movie]:
     with psycopg.connect(database_url(), row_factory=dict_row) as conn:
         rows = conn.execute(
