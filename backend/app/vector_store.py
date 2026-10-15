@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import sqlite3
@@ -12,9 +13,11 @@ import numpy as np
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except Exception:  # pragma: no cover
     psycopg = None
     dict_row = None
+    ConnectionPool = None
 
 from .models import Movie
 
@@ -233,6 +236,31 @@ TITLE_COLUMNS = """
 """
 
 RRF_K = 60
+HNSW_EF_SEARCH = 100
+
+_search_pool = None
+
+
+def _configure_search_connection(conn) -> None:
+    conn.execute(f"set hnsw.ef_search = {HNSW_EF_SEARCH}")
+
+
+def search_pool():
+    """Warm connections reused across requests. Opening a new TLS connection
+    to Neon on every search was a large share of request time."""
+    global _search_pool
+    if _search_pool is None:
+        _search_pool = ConnectionPool(
+            database_url(),
+            min_size=1,
+            max_size=4,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            configure=_configure_search_connection,
+            check=ConnectionPool.check_connection,
+            open=True,
+        )
+        atexit.register(_search_pool.close)
+    return _search_pool
 
 
 def reciprocal_rank_fusion(ranked_ids: list[tuple[float, list[str]]], k: int = RRF_K) -> dict[str, float]:
@@ -276,10 +304,26 @@ def hybrid_candidates(
     where_sql = (" and " + " and ".join(filters)) if filters else ""
     ranked_lists: list[tuple[float, list[dict]]] = []
     cosine_by_id: dict[str, float] = {}
-    with psycopg.connect(database_url(), row_factory=dict_row) as conn:
+    with search_pool().connection() as conn:
+        # Keyword search runs first so it overlaps with the embedding request
+        # when the caller passes a future.
+        tsquery = keyword_tsquery(query_terms)
+        keyword_rows = []
+        if tsquery:
+            keyword_rows = conn.execute(
+                f"""
+                select {TITLE_COLUMNS}, ts_rank_cd(search_tsv, q) as text_rank
+                from titles, to_tsquery('english', %s) q
+                where search_tsv @@ q{where_sql}
+                order by text_rank desc
+                limit %s
+                """,
+                (tsquery, k),
+            ).fetchall()
+        if hasattr(query_embedding, "result"):
+            query_embedding = query_embedding.result()
         if query_embedding:
             literal = "[" + ",".join(f"{x:.7f}" for x in query_embedding) + "]"
-            conn.execute("set local hnsw.ef_search = %s" % max(k, 40))
             rows = conn.execute(
                 f"""
                 select {TITLE_COLUMNS}, 1 - (embedding <=> %s::vector) as cosine
@@ -291,19 +335,8 @@ def hybrid_candidates(
                 (literal, literal, k),
             ).fetchall()
             ranked_lists.append((1.0, rows))
-        tsquery = keyword_tsquery(query_terms)
-        if tsquery:
-            rows = conn.execute(
-                f"""
-                select {TITLE_COLUMNS}, ts_rank_cd(search_tsv, q) as text_rank
-                from titles, to_tsquery('english', %s) q
-                where search_tsv @@ q{where_sql}
-                order by text_rank desc
-                limit %s
-                """,
-                (tsquery, k),
-            ).fetchall()
-            ranked_lists.append((keyword_weight, rows))
+        if keyword_rows:
+            ranked_lists.append((keyword_weight, keyword_rows))
 
     rows_by_id: dict[str, dict] = {}
     for _, rows in ranked_lists:

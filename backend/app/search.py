@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from collections import Counter
 from datetime import date
 from math import sqrt
@@ -178,13 +180,29 @@ def cosine_from_vectors(a: list[float], b: list[float]) -> float:
     return dot / (a_norm * b_norm)
 
 
+_openai_client = None
+_embedding_executor = ThreadPoolExecutor(max_workers=4)
+
+
+def openai_client():
+    # One client per process keeps the HTTPS connection to OpenAI warm.
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+@lru_cache(maxsize=4096)
+def _cached_embedding(query: str, model: str) -> tuple[float, ...]:
+    response = openai_client().embeddings.create(model=model, input=query)
+    return tuple(response.data[0].embedding)
+
+
 def embed_query(query: str) -> list[float] | None:
     if not os.getenv("OPENAI_API_KEY") or OpenAI is None:
         return None
     try:
-        client = OpenAI()
-        response = client.embeddings.create(model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"), input=query)
-        return response.data[0].embedding
+        return list(_cached_embedding(query, os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")))
     except Exception:
         return None
 
@@ -224,11 +242,12 @@ def rank_movies(query: str, profile: str, movies: list[Movie] | None = None, ret
     if movies:
         source_movies = movies
     elif database_url() and retrieval == "hybrid":
-        query_embedding = embed_query(normalized)
+        embedding_future = _embedding_executor.submit(embed_query, normalized)
         try:
             source_movies, precomputed_vector_scores, fused_scores = hybrid_candidates(
-                query_terms, query_embedding, intent, keyword_weight=HYBRID_KEYWORD_WEIGHT
+                query_terms, embedding_future, intent, keyword_weight=HYBRID_KEYWORD_WEIGHT
             )
+            query_embedding = embedding_future.result()
         except Exception as exc:  # e.g. migrations/002 not applied yet
             print(f"hybrid retrieval failed, falling back to legacy: {exc}")
             return rank_movies(query, profile, retrieval="legacy")
